@@ -24,17 +24,17 @@ let mutable global_sub_table = ConcurrentDictionary<string,List<string>>()
 
 
 
-printfn "Enter no, of users:"
-let num_user = (System.Console.ReadLine())|>int;
+//printfn "Enter no, of users:"
+let num_user = 5//(System.Console.ReadLine())|>int;
 let tmp_lst = [1 .. num_user]
 
 let listofhashtags = ["#florida";"#UF";"#cise";"#DOS";"Gainesville"]
 let listofusers = List.map (fun x -> "Actor" + string(x)) tmp_lst
-
+printfn "hash list:%A" listofhashtags
 
 type ActorMsg =
     | TweetSave of string*string
-    | Addsub of string*List<string>
+    | Addsub of string*string*List<string>
     | Terminate
 
 //enum for Sub Actor message
@@ -100,6 +100,7 @@ let mutable n_index = num_user-1
 
 let sub_actor system name=
         let my_id = "Actor"+name
+        let my_user_id = "User"+name
         let mutable myname = ""
         let mutable state = "online"
         let mutable subscriberslist = List.empty
@@ -110,12 +111,12 @@ let sub_actor system name=
         for i=0 to 1 do
             let mutable x2 = random.Next(listofhashtags.Length)
             let mutable tmp2 = listofhashtags.[x2]
-            while((List.exists (fun elem -> elem = tmp2) listofhashtags) = true) do
+            while((List.exists (fun elem -> elem = tmp2) hashtaglist) = true) do
                 x2 <- random.Next(listofhashtags.Length)
                 tmp2 <- listofhashtags.[x2]
             hashtaglist <- List.append hashtaglist [tmp2]
 
-        printfn "in sub actor"
+        printfn "created:%s" my_id
 
         let user_process = spawn system my_id <|fun mailbox ->
                             let rec loop()=
@@ -130,9 +131,10 @@ let sub_actor system name=
                                                     x1 <- random.Next(num_user)
                                                     tmp <- "Actor"+string(x1+1)
                                                 subscriberslist <- List.append subscriberslist [tmp]
-                                           
+                                           printfn "%A" subscriberslist
                                            let sel = system.ActorSelection("akka://MainActor/user/M_Actor")
-                                           sel.Tell(Addsub (my_id,subscriberslist));
+                                           sel.Tell(Addsub (my_id,my_user_id,subscriberslist));
+                                           
 
                                     |SetName nm1 ->    
                                            myname <- nm1                       
@@ -143,7 +145,7 @@ let sub_actor system name=
                                 }
                             loop()
 
-        spawn system ("User"+string(name)) <|fun mailbox ->
+        spawn system my_user_id <|fun mailbox ->
                             let rec loop()=
                                 actor{
                                     let! message = mailbox.Receive()
@@ -151,8 +153,9 @@ let sub_actor system name=
                                     |Post_Tweet -> 
                                         let mutable i=0
                                         let mutable j=0;
-                                        for j = 0 to 10 do
-                                            while i<5 do  
+                                        for j = 0 to 1 do
+                                            i <- 1
+                                            while i<2 do  
                                                     i <- i+1
                                                 //if state.Equals("online") then
                                                     let mutable rtrv_twt = []
@@ -209,15 +212,16 @@ let sub_actor system name=
                                             for k = 0 to 1 do
                                                 let r1 = random.Next(subscriberslist.Length)
                                                 let choose_sub = subscriberslist.[r1]
-                                                let retweet_list = tweet_feed.[choose_sub]
-                                                let twt_idx = random.Next(retweet_list.Length)
-                                                let r_twt = retweet_list.[twt_idx]
-                                                let sel_act = system.ActorSelection("akka://MainActor/user/M_Actor")
-                                                sel_act.Tell(TweetSave (my_id,r_twt))
-                                                System.Threading.Thread.Sleep(200);
+                                                if tweet_feed.ContainsKey(choose_sub) then
+                                                    let retweet_list = tweet_feed.[choose_sub]
+                                                    let twt_idx = random.Next(retweet_list.Length)
+                                                    let r_twt = retweet_list.[twt_idx]
+                                                    let sel_act = system.ActorSelection("akka://MainActor/user/M_Actor")
+                                                    sel_act.Tell(TweetSave (my_id,r_twt))
+                                                    System.Threading.Thread.Sleep(100);
 
                                             //go offline                                            
-                                            System.Threading.Thread.Sleep(1000); //stay offline for 2sec
+                                            System.Threading.Thread.Sleep(200); //stay offline for 2sec
                                         let selact = system.ActorSelection("akka://MainActor/user/M_Actor")
                                         selact.Tell(Terminate)
 
@@ -225,12 +229,15 @@ let sub_actor system name=
                                 }
                             loop()
 
+            // let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/User"+(1|>string)))
+            // sel_Actor.Tell(Post_Tweet)
 
 let Master_Actor num_of_node= spawn system "M_Actor" <| fun mailbox -> //Main Actor created
         Actor <-
             [1..num_of_node]
             |> List.map(fun id-> sub_actor mailbox ((string(id)))) 
-                
+
+        printfn "in main"       
         let mutable n_mod = 1
         for j = 1 to num_user do
             let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/" + "Actor"+(j|>string)))
@@ -238,12 +245,10 @@ let Master_Actor num_of_node= spawn system "M_Actor" <| fun mailbox -> //Main Ac
             n_mod <- n_mod+1
         
         stopWatch <- System.Diagnostics.Stopwatch.StartNew()
-        // for j=1 to num_user do
-        //     let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/" + "User"+(j|>string)))
-        //     sel_Actor.Tell(Post_Tweet)
+        
 
         let mutable term = 0
-        
+        printfn "Twitter server started............"
         let rec loop()=
             actor{
                 let! message = mailbox.Receive()
@@ -258,11 +263,14 @@ let Master_Actor num_of_node= spawn system "M_Actor" <| fun mailbox -> //Main Ac
                     else
                         while tweet_feed.TryAdd(origin,[str_twt]) = false do
                             printf ""
-                |Addsub (u_name,sub_lst) ->
-                    global_sub_table.TryAdd(u_name,sub_lst)|>ignore
-                    printfn ""
+                |Addsub (u_name,u_id,sub_lst) ->
+                    while global_sub_table.TryAdd(u_name,sub_lst) = false do
+                        printf ""
+                    let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/"+string(u_id)))
+                    sel_Actor.Tell(Post_Tweet)
                 |Terminate ->
                     term <- term+1
+                    printfn "term count: %d" term
                     if term = num_user then
                         flag_exit <- false
                 return! loop()
@@ -279,9 +287,9 @@ Master_Actor num_user |>ignore
 //     sel_Actor.Tell(SetName str)
     //M_Actor.Tell(AddUser ((i|>string), str));
 
-for j=1 to num_user do
-    let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/" + "User"+(j|>string)))
-    sel_Actor.Tell(Post_Tweet)
+// for j=1 to num_user do
+//     let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/" + "User"+(j|>string)))
+//     sel_Actor.Tell(Post_Tweet)
 
 while(flag_exit) do
     printf ""
