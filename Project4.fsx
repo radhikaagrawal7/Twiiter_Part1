@@ -124,14 +124,17 @@ let sub_actor system name=
                                     let! message = mailbox.Receive()
                                     match message with
                                     |Createsub nmod ->
-                                           for i=0 to int((n_index/nmod)) do //n_index = num_user-1
+                                           let mutable end_idx = n_index/nmod
+                                           if end_idx = 0 then
+                                                end_idx <- 1
+                                           for i=1 to end_idx do //n_index = num_user-1
                                                 let mutable x1 = random.Next(num_user)
                                                 let mutable tmp = "Actor"+string((x1+1))
                                                 while(((List.exists (fun elem -> elem = tmp) subscriberslist) = true) || (tmp = my_id)) do
                                                     x1 <- random.Next(num_user)
                                                     tmp <- "Actor"+string(x1+1)
                                                 subscriberslist <- List.append subscriberslist [tmp]
-                                           printfn "%A" subscriberslist
+                                           printfn "sub list of %s : %A" my_id subscriberslist
                                            let sel = system.ActorSelection("akka://MainActor/user/M_Actor")
                                            sel.Tell(Addsub (my_id,my_user_id,subscriberslist));
                                            
@@ -139,7 +142,7 @@ let sub_actor system name=
                                     |SetName nm1 ->    
                                            myname <- nm1                       
                                     |TweetRcv val2 ->
-                                           printfn "received tweets:%A" val2
+                                           printfn "%s logged-in feed: received tweets:%A" my_id val2
 
                                     return! loop()
                                 }
@@ -172,15 +175,16 @@ let sub_actor system name=
                                                         rtrv_twt <- List.append rtrv_twt mentions.[my_id]
                                                         //printfn ""
 
-                                                    let sel_act_x = system.ActorSelection("akka://MainActor/user/M_Actor/"+my_id)
-                                                    sel_act_x.Tell(TweetRcv rtrv_twt)
+                                                    if rtrv_twt.Length > 0 then
+                                                        let sel_act_x = system.ActorSelection("akka://MainActor/user/M_Actor/"+my_id)
+                                                        sel_act_x.Tell(TweetRcv rtrv_twt)
 
                                                     let h1 = random.Next(listofhashtags.Length)
                                                     let hsh = listofhashtags.[h1]
                                                     let men1 = random.Next(listofusers.Length)
                                                     let mention = listofusers.[men1]
                                                     let mk_twt = "Hey " + mention + " " + hsh  
-                                                    printfn "%s" mk_twt
+                                                    printfn "%s says %s" my_id mk_twt
 
                                                     //below code is to add tweets corresponding to each hashtag
                                                     let check1 = hashtags.ContainsKey(hsh)
@@ -198,15 +202,15 @@ let sub_actor system name=
                                                     if check2 = true then
                                                         let old_list = mentions.[mention]
                                                         let new_list = List.append old_list [mention]
-                                                        mentions.[mention] <- new_list
-                                                        printfn ""
+                                                        while  mentions.TryUpdate(mention,new_list,old_list) = false do
+                                                            printf ""
                                                     else
                                                         while mentions.TryAdd(mention,[mk_twt]) = false do
                                                             printf ""
 
                                                     let sel_act = system.ActorSelection("akka://MainActor/user/M_Actor")
                                                     sel_act.Tell(TweetSave (my_id,mk_twt))//post directly to main and let users read from main
-                                                    System.Threading.Thread.Sleep(200); //change this to diff time corresponding to length of subscriberlist
+                                                    System.Threading.Thread.Sleep(1000); //change this to diff time corresponding to length of subscriberlist
                                             
                                             //code for retweet here
                                             for k = 0 to 1 do
@@ -218,10 +222,10 @@ let sub_actor system name=
                                                     let r_twt = retweet_list.[twt_idx]
                                                     let sel_act = system.ActorSelection("akka://MainActor/user/M_Actor")
                                                     sel_act.Tell(TweetSave (my_id,r_twt))
-                                                    System.Threading.Thread.Sleep(100);
+                                                    System.Threading.Thread.Sleep(1000);
 
                                             //go offline                                            
-                                            System.Threading.Thread.Sleep(200); //stay offline for 2sec
+                                            System.Threading.Thread.Sleep(1000); //stay offline for 2sec
                                         let selact = system.ActorSelection("akka://MainActor/user/M_Actor")
                                         selact.Tell(Terminate)
 
@@ -238,11 +242,11 @@ let Master_Actor num_of_node= spawn system "M_Actor" <| fun mailbox -> //Main Ac
             |> List.map(fun id-> sub_actor mailbox ((string(id)))) 
 
         printfn "in main"       
-        let mutable n_mod = 1
+        //let mutable n_mod = 1
         for j = 1 to num_user do
             let sel_Actor = system.ActorSelection(("akka://MainActor/user/M_Actor/" + "Actor"+(j|>string)))
-            sel_Actor.Tell(Createsub n_mod)
-            n_mod <- n_mod+1
+            sel_Actor.Tell(Createsub j)
+            //n_mod <- n_mod+1
         
         stopWatch <- System.Diagnostics.Stopwatch.StartNew()
         
